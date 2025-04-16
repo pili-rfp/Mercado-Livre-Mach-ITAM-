@@ -5,7 +5,8 @@ In this repository, you will find the base code for the framework, documentation
 
 ## Change Log
 
-- **15-04-2025**: [Sprint phase results](results/sprint_phase.pdf)  are now available.
+- **16-04-2025**: [Sprint phase results](results/sprint_phase.pdf) updated.
+- **15-04-2025**: [Sprint phase results](results/sprint_phase.pdf) are now available.
 - **15-04-2025**: Dataset `B` is now available.
 - **05-03-2025**: Updated the challenge rules to clarify that, due to allowing a multithread environment, no seed for random generation will be provided.
 - **27-02-2025**: Updated the challenge rules to include specific details of the computer environment in which the challenge will be run.
