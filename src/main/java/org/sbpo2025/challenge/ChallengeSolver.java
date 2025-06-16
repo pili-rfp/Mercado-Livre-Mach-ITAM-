@@ -2,52 +2,54 @@ package org.sbpo2025.challenge;
 
 import ilog.concert.*;
 import ilog.cplex.*;
-import java.util.Arrays;
-import java.util.HashMap;
-import java.util.HashSet;
-import java.util.List;
-import java.util.Map;
-import java.util.Set;
+import java.util.*;
 import java.util.concurrent.TimeUnit;
 import org.apache.commons.lang3.time.StopWatch;
 
+
 public class ChallengeSolver {
     private final long MAX_RUNTIME = 600000; // milliseconds; 10 minutes
-
     protected List<Map<Integer, Integer>> orders;
     protected List<Map<Integer, Integer>> aisles;
     protected int nItems;
     protected int waveSizeLB;
     protected int waveSizeUB;
+   
+    protected long getRemainingTime(StopWatch stopWatch) {
+        return Math.max(TimeUnit.SECONDS.convert(MAX_RUNTIME - stopWatch.getTime(TimeUnit.MILLISECONDS), TimeUnit.MILLISECONDS),0);
+    }
+   /*public static List<Object> solveForH(IloCplex model, IloRange res, int h, double timeLimit, double gap,
+    Map<Integer, IloIntVar> x, Map<Integer, IloIntVar> y) throws IloException{*/
 
-    public static List<Object> solveForH(IloCplex model, IloRange res, int h, double timeLimit, double gap,
+   public static List<Object> solveForH(IloCplex model, IloRange resL, IloRange resU, int lb, int ub, double timeLimit, double gap,
                                  Map<Integer, IloIntVar> x, Map<Integer, IloIntVar> y) throws IloException{
-        // Establecer el número de pasillos
-      
-        res.setBounds(h,h);
-                   
-        // Parámetros del solver
-        model.setParam(IloCplex.Param.TimeLimit, Math.min(120, timeLimit));
-        model.setParam(IloCplex.Param.MIP.Tolerances.MIPGap, gap);
-        model.setParam(IloCplex.Param.MIP.Strategy.HeuristicFreq,5);
-        model.setParam(IloCplex.Param.MIP.Strategy.HeuristicEffort, 1.0);
-        model.setParam(IloCplex.Param.MIP.Strategy.RINSHeur, 0);
-        model.setParam(IloCplex.Param.MIP.Limits.CutPasses, 5);
-        model.setParam(IloCplex.Param.MIP.Cuts.Gomory, 0);
-        model.setParam(IloCplex.Param.Preprocessing.NumPass , 2);
-        model.setParam(IloCplex.Param.MIP.Display, 4); // Nivel de detalle del log (0 a 5)
+        int yTotal = 0;
 
-        //model.setOut(System.out); // Restaurar la salida a la consola
-        
-        model.solve();
+
+        // Si no hay suficiente tiempo para ejecutar, se cancela
+        if (timeLimit < 20){
+            return Arrays.asList(-2.0, new HashSet<>(), new HashSet<>(), -2);
+        }
+
+        // Establecer cota superior sobre el número de pasillos
+        resL.setLB(lb);
+        resU.setUB(ub);
+
+        // Parámetros del solver
+        model.setParam(IloCplex.Param.TimeLimit, Math.min(100, timeLimit));
+        model.setParam(IloCplex.Param.MIP.Tolerances.MIPGap, gap);
+
+        //model.exportModel("modelowave.lp"); 
 
         // Resolver
+        model.solve();
         if (model.getStatus() == IloCplex.Status.Infeasible || model.getStatus() == IloCplex.Status.Unknown) {
-            return Arrays.asList(-1.0, new HashSet<>(), new HashSet<>());
+            return Arrays.asList(-1.0, new HashSet<>(), new HashSet<>(), -1);
         }
         else{
             Set<Integer> xVal = new HashSet<>();
             Set<Integer> yVal = new HashSet<>();
+
 
             for (Map.Entry<Integer, IloIntVar> entry : x.entrySet()) {
                 if (model.getValue(entry.getValue()) > 0.001) {
@@ -55,13 +57,16 @@ public class ChallengeSolver {
                 }
             }
 
+
             for (Map.Entry<Integer, IloIntVar> entry : y.entrySet()) {
                 if (model.getValue(entry.getValue()) > 0.001) {
                     yVal.add(entry.getKey());
+                    yTotal++;
                 }
             }   
 
-            return Arrays.asList(model.getObjValue(), xVal, yVal);
+
+            return Arrays.asList(model.getObjValue(), xVal, yVal, yTotal);
         }
     }
 
@@ -74,10 +79,12 @@ public class ChallengeSolver {
         this.waveSizeUB = waveSizeUB;
     }
 
-     public ChallengeSolution solve(StopWatch stopWatch) {
+  public ChallengeSolution solve(StopWatch stopWatch) {
+
 
         Set<Integer> selectedOrders = new HashSet<>();
         Set<Integer> selectedAisles = new HashSet<>();
+
 
         try {
             int nOrders = orders.size();
@@ -85,31 +92,21 @@ public class ChallengeSolver {
     
             IloCplex cplex = new IloCplex();
             cplex.setName("mlibre");
-
             cplex.setParam(IloCplex.Param.MIP.Display, 0);
-            cplex.setParam(IloCplex.Param.MIP.Cuts.Gomory, -1);
             cplex.setOut(null);
-
     
             Map<Integer, IloIntVar> x = new HashMap<>();
             Map<Integer, IloIntVar> y = new HashMap<>();
-            Map<List<Integer>, IloIntVar> z = new HashMap<>();
     
-            // Variables
+            // Variables x (ordenes)
             for (int i = 0; i < nOrders; i++) {
                 x.put(i, cplex.boolVar("x_" + i));
             }
-    
-            // Variables y y z
+
+            // Variables y (pasillos)
             for (int k = 0; k < nAisles; k++) {
                 y.put(k, cplex.boolVar("y_" + k));
-    
-                for (int j = 0; j < nItems; j++) {
-                    List<Integer> key = Arrays.asList(k, j);
-                    z.put(key, cplex.intVar(0, Integer.MAX_VALUE, "z_" + k + "_" + j));
-                }
             }
-
 
             // Objetivo: Maximizar cantidad de artículos en wave
             IloLinearNumExpr obj = cplex.linearNumExpr();
@@ -130,23 +127,29 @@ public class ChallengeSolver {
             cplex.addGe(totalExpr, waveSizeLB, "LB_limit");
             cplex.addLe(totalExpr, waveSizeUB, "UB_limit");
     
-            // Restricción sobre número de pasillos seleccionados
+            // Restricciones sobre número de pasillos seleccionados
             IloLinearNumExpr aisleExpr = cplex.linearNumExpr();
             for (int k = 0; k < nAisles; k++) {
                 aisleExpr.addTerm(1, y.get(k));
             }
-            IloRange restm = cplex.addEq(aisleExpr, 1, "aisles_restriction");
+            IloRange restlb = cplex.addGe(aisleExpr, 1, "lb_aisles_restriction");
+            IloRange restub = cplex.addLe(aisleExpr, nAisles, "ub_aisles_restriction");
     
-            // Restricciones de capacidad
-            for (int k = 0; k < nAisles; k++) {
-                Map<Integer, Integer> aisleMap = aisles.get(k);
-                for (Map.Entry<Integer, Integer> entry : aisleMap.entrySet()) {
-                    int j = entry.getKey();
-                    int cap = entry.getValue();
-                    List<Integer> key = Arrays.asList(k, j);
-                    IloLinearNumExpr capExpr = cplex.linearNumExpr();
-                    capExpr.addTerm(cap, y.get(k));
-                    cplex.addLe(z.get(key), capExpr, "capacity_" + k + "_" + j);
+            // Crear un diccionario de productos a órdenes para acelerar las restricciones
+            Map<Integer, List<List<Integer>>> productToOrders = new HashMap<>();
+            for (int j = 0; j < nItems; j++) {
+                productToOrders.put(j, new ArrayList<>());   
+            }
+            // Recorrer las órdenes para llenar el diccionario
+            for (int i = 0; i < nOrders; i++) {
+                Map<Integer, Integer> order = orders.get(i);
+                for (Map.Entry<Integer, Integer> entry : order.entrySet()) {
+                    int productIndex = entry.getKey();      // Producto
+                    int quantity = entry.getValue();        // Cantidad
+
+                    // Crear lista [i, quantity] y agregarla al producto correspondiente
+                    List<Integer> entryPair = Arrays.asList(i, quantity);
+                    productToOrders.get(productIndex).add(entryPair);
                 }
             }
     
@@ -155,79 +158,97 @@ public class ChallengeSolver {
                 IloLinearNumExpr demandExpr = cplex.linearNumExpr();
                 IloLinearNumExpr supplyExpr = cplex.linearNumExpr();
     
-                for (int i = 0; i < nOrders; i++) {
-                    Map<Integer, Integer> order = orders.get(i);
-                    if (order.containsKey(j)) {
-                        demandExpr.addTerm(order.get(j), x.get(i));
-                    }
+                 // Construir expresión de demanda usando productToOrders
+                for (List<Integer> pair : productToOrders.get(j)) {
+                    int i = pair.get(0);       // Índice de orden
+                    int quantity = pair.get(1); // Cantidad del producto j en la orden i
+                    demandExpr.addTerm(quantity, x.get(i));
                 }
-    
+                
+                // Construir expresión de oferta
                 for (int k = 0; k < nAisles; k++) {
                     Map<Integer, Integer> aisle = aisles.get(k);
                     if (aisle.containsKey(j)) {
-                        List<Integer> key = Arrays.asList(k, j);
-                        supplyExpr.addTerm(1.0, z.get(key));
+                        supplyExpr.addTerm(aisle.get(j), y.get(k));
                     }
                 }
-
                 cplex.addLe(demandExpr, supplyExpr, "availability_" + j);
             }
-    
-            // Tiempo disponible y solve inicial
-            double remainingTime = getRemainingTime(stopWatch);
-            List<Object> s = solveForH(cplex, restm, 1, remainingTime, 0.01, x, y);
-    
-            double bestRatio = (double) s.get(0) > 0 ? (double) s.get(0) / 1 : -Double.MAX_VALUE;
-            int bestK = (double) s.get(0) > 0 ? 1 : nAisles;
-            List<Object> bestSol = s;
-            int a=1,b=nAisles;
-            if ((double) s.get(0) > 0) {
-                bestK=1;
-                bestSol = s;
-                bestRatio = (double) s.get(0);
-            }   
-            else{
-                while (a <= b) {
-                    int mid = (a + b) / 2;
-                    remainingTime = getRemainingTime(stopWatch);
-                    if (mid == 0 || remainingTime < 20.0) break;
-                    //System.out.println("Checking for "+ mid + " aisles");
-    
-                    s = solveForH(cplex, restm, mid, remainingTime - 20.0, 0.07, x, y);
-                    //double ratio=0;
-                    if ((double) s.get(0) > 0) {
-                        double ratio = (double) s.get(0) / mid;
-                        if (ratio > bestRatio) {
-                            bestRatio = ratio;
-                            bestK = mid;
-                            bestSol = s;
-                        }
-                        b = mid - 1;
-                    } 
-                    else 
-                    {
-                        a = mid + 1;
-                    }
-                /*System.out.print(a);
-                System.out.print(" ");
-                System.out.print(b);
-                System.out.print(" ");
-                System.out.println(remainingTime);*/
 
+            // Parametros del solver
+            
+            //cplex.setParam(IloCplex.Param.NodeAlgorithm,4 );
+            cplex.setParam(IloCplex.Param.MIP.Strategy.Branch, 1);
+            cplex.setParam(IloCplex.Param.Parallel,-1);
+            cplex.setParam(IloCplex.Param.MIP.Strategy.HeuristicFreq,20);
+            //cplex.setParam(IloCplex.Param.RootAlgorithm,4);
+            cplex.setParam(IloCplex.Param.MIP.Strategy.VariableSelect,1);
+            cplex.setParam(IloCplex.Param.MIP.Cuts.MIRCut,2);
+            cplex.setParam(IloCplex.Param.MIP.Limits.CutPasses,3);
+            cplex.setParam(IloCplex.Param.Preprocessing.Dual,1);
+            cplex.setParam(IloCplex.Param.MIP.Display, 4); // Nivel de detalle del log (0 a 5)
+            cplex.exportModel("modelowave.lp");
+            //java.io.PrintStream out = System.out;
+            //cplex.setOut(out);
+            // Busqueda binaria
+            int a=1,b=nAisles;
+            double bestRatio =  -Double.MAX_VALUE;
+            double remainingTime;
+            int bestK = nAisles;
+            List<Object> bestSol = Arrays.asList(-2, new HashSet<>(), new HashSet<>(), -2);
+            int i=1,mid;
+            while (a < b) {
+                if(i==1){
+                    int divisiones=(int) Math.floor(Math.log(a+b)/Math.log(2));                
+                    mid = (int) Math.floor((a + b) / divisiones);
+                    i++;
+                }
+                else{
+                    mid = (int) Math.floor((a + b) / 2.0);
+                    i++; 
+                }
+                
+                // Resolver parte izquierda
+                remainingTime = getRemainingTime(stopWatch);
+                //System.out.print("Tiempo: ");
+                //System.out.println(remainingTime);
+                List<Object> sIzq = solveForH(cplex, restlb, restub, a, mid, remainingTime - 20, 0.02, x, y);
+                System.out.println("izq " + a + " " + mid + " " + sIzq.get(0) + " " + sIzq.get(3) + " " + ((double) sIzq.get(0) / (int) sIzq.get(3)) + " " + remainingTime);
+
+                // Resolver parte derecha
+                remainingTime = getRemainingTime(stopWatch);
+                List<Object> sDer = solveForH(cplex, restlb, restub, mid + 1, b, remainingTime - 20, 0.02, x, y);
+                System.out.println("der " + (mid + 1) + " " + b + " " + sDer.get(0) + " " + sDer.get(3) + " " + ((double) sDer.get(0) / (int) sDer.get(3)) + " " + remainingTime);
+                if ((double) sIzq.get(0) / (int) sIzq.get(3) > (double) sDer.get(0) / (int) sDer.get(3)) {
+                    double r = (double) sIzq.get(0) / (int) sIzq.get(3);
+                    b = mid;
+                    if (r > bestRatio) {
+                        bestRatio = r;
+                        bestK = (int) sIzq.get(3);
+                        bestSol = sIzq;
+                    }
+                    System.out.println("izq");
+                    //System.out.println("izq " + a + " " + mid + " " + sIzq.get(0) + " " + sIzq.get(3) + " " + ((double) sIzq.get(0) / (int) sIzq.get(3)) + " " + remainingTime);
+                } else {
+                    double r = (double) sDer.get(0) / (int) sDer.get(3);
+                    a = mid + 1;
+                    if (r > bestRatio) {
+                        bestRatio = r;
+                        bestK = (int) sDer.get(3);
+                        bestSol = sDer;
+                    }
+                    System.out.println("der");
+                    //System.out.println("der " + (mid + 1) + " " + b + " " + sDer.get(0) + " " + sDer.get(3) + " " + ((double) sDer.get(0) / (int) sDer.get(3)) + " " + remainingTime);
                 }
             }
 
+
     
-            // Imprimir mejor solución
-            //System.out.println("Num orders: " + ((Set<Integer>) bestSol.get(1)).size());
+            // Guardar mejor solución
             for (int p : (Set<Integer>) bestSol.get(1)) {
-                //System.out.println("Order: "+p);
                 selectedOrders.add(p);
             }
-    
-            //System.out.println("Num aisles: " + ((Set<Integer>) bestSol.get(2)).size());
             for (int q : (Set<Integer>) bestSol.get(2)) {
-                //System.out.println("Aisle: "+q);
                 selectedAisles.add(q);
             }
     
@@ -242,14 +263,13 @@ public class ChallengeSolver {
         return new ChallengeSolution(selectedOrders, selectedAisles);
     }
 
+
+
     /*
      * Get the remaining time in seconds
      */
-    protected long getRemainingTime(StopWatch stopWatch) {
-        return Math.max(
-                TimeUnit.SECONDS.convert(MAX_RUNTIME - stopWatch.getTime(TimeUnit.MILLISECONDS), TimeUnit.MILLISECONDS),
-                0);
-    }
+
+
 
     protected boolean isSolutionFeasible(ChallengeSolution challengeSolution) {
         Set<Integer> selectedOrders = challengeSolution.orders();
