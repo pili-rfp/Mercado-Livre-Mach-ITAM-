@@ -43,7 +43,9 @@ public class ChallengeSolver {
 
         // Resolver
         model.solve();
-        if (model.getStatus() == IloCplex.Status.Infeasible || model.getStatus() == IloCplex.Status.Unknown) {
+        if (model.getStatus() == IloCplex.Status.Infeasible 
+            // || model.getStatus() == IloCplex.Status.Unknown
+        ) {
             return Arrays.asList(-1.0, new HashSet<>(), new HashSet<>(), -1);
         }
         else{
@@ -177,16 +179,17 @@ public class ChallengeSolver {
 
             // Parametros del solver
             
-            //cplex.setParam(IloCplex.Param.NodeAlgorithm,4 );
-            cplex.setParam(IloCplex.Param.MIP.Strategy.Branch, 1);
-            cplex.setParam(IloCplex.Param.Parallel,-1);
-            cplex.setParam(IloCplex.Param.MIP.Strategy.HeuristicFreq,20);
-            //cplex.setParam(IloCplex.Param.RootAlgorithm,4);
-            cplex.setParam(IloCplex.Param.MIP.Strategy.VariableSelect,1);
-            cplex.setParam(IloCplex.Param.MIP.Cuts.MIRCut,2);
-            cplex.setParam(IloCplex.Param.MIP.Limits.CutPasses,3);
-            cplex.setParam(IloCplex.Param.Preprocessing.Dual,1);
-            cplex.setParam(IloCplex.Param.MIP.Display, 4); // Nivel de detalle del log (0 a 5)
+            // cplex.setParam(IloCplex.Param.NodeAlgorithm,4 );
+            // cplex.setParam(IloCplex.Param.MIP.Strategy.Branch, 1);
+            // cplex.setParam(IloCplex.Param.Parallel,-1);
+            // cplex.setParam(IloCplex.Param.MIP.Strategy.HeuristicFreq,20);
+            // //cplex.setParam(IloCplex.Param.RootAlgorithm,4);
+            // cplex.setParam(IloCplex.Param.MIP.Strategy.VariableSelect,1);
+            // cplex.setParam(IloCplex.Param.MIP.Cuts.MIRCut,2);
+            // cplex.setParam(IloCplex.Param.MIP.Limits.CutPasses,3);
+            // cplex.setParam(IloCplex.Param.Preprocessing.Dual,1);
+            // cplex.setParam(IloCplex.Param.MIP.Display, 4); // Nivel de detalle del log (0 a 5)
+            cplex.setParam(IloCplex.Param.Emphasis.MIP, 1); // Actiba enfásis en encontrar factible
             cplex.exportModel("modelowave.lp");
             //java.io.PrintStream out = System.out;
             //cplex.setOut(out);
