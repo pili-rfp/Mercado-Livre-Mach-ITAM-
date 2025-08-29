@@ -43,8 +43,7 @@ public class ChallengeSolver {
 
         // Resolver
         model.solve();
-        if (model.getStatus() == IloCplex.Status.Infeasible 
-            // || model.getStatus() == IloCplex.Status.Unknown
+        if (model.getStatus() == IloCplex.Status.Infeasible  || model.getStatus() == IloCplex.Status.Unknown
         ) {
             return Arrays.asList(-1.0, new HashSet<>(), new HashSet<>(), -1);
         }
