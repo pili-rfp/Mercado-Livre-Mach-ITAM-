@@ -1,5 +1,4 @@
 package org.sbpo2025.challenge;
-
 import ilog.concert.*;
 import ilog.cplex.*;
 import java.util.*;
@@ -14,6 +13,18 @@ public class ChallengeSolver {
     protected int nItems;
     protected int waveSizeLB;
     protected int waveSizeUB;
+    private boolean canPrune(int a, int b, double bestRatio) {
+    // 1. Calcula el máximo de artículos que podrían recogerse
+    int maxItems = 0;
+    for (Map<Integer, Integer> order : orders) {
+        for (int qty : order.values()) {
+            maxItems += qty;
+        }
+    }
+    // 2. La mejor razón posible en [a,b] es maxItems / a
+    double upperBound = (double) maxItems / a;
+    return upperBound <= bestRatio + 1e-6; // margen de redondeo
+    }
    
     protected long getRemainingTime(StopWatch stopWatch) {
         return Math.max(TimeUnit.SECONDS.convert(MAX_RUNTIME - stopWatch.getTime(TimeUnit.MILLISECONDS), TimeUnit.MILLISECONDS),0);
@@ -178,16 +189,16 @@ public class ChallengeSolver {
             // Parametros del solver
             
             //cplex.setParam(IloCplex.Param.NodeAlgorithm,4 );
-            cplex.setParam(IloCplex.Param.MIP.Strategy.Branch, 1);
-            cplex.setParam(IloCplex.Param.Parallel,-1);
-            cplex.setParam(IloCplex.Param.MIP.Strategy.HeuristicFreq,20);
+            //cplex.setParam(IloCplex.Param.MIP.Strategy.Branch, 1);
+            //cplex.setParam(IloCplex.Param.Parallel,0);
+            //cplex.setParam(IloCplex.Param.MIP.Strategy.HeuristicFreq,20);
             //cplex.setParam(IloCplex.Param.RootAlgorithm,4);
-            cplex.setParam(IloCplex.Param.MIP.Strategy.VariableSelect,1);
-            cplex.setParam(IloCplex.Param.MIP.Cuts.MIRCut,2);
-            cplex.setParam(IloCplex.Param.MIP.Limits.CutPasses,3);
-            cplex.setParam(IloCplex.Param.Preprocessing.Dual,1);
-            cplex.setParam(IloCplex.Param.MIP.Display, 4); // Nivel de detalle del log (0 a 5)
-            cplex.exportModel("modelowave.lp");
+            //cplex.setParam(IloCplex.Param.MIP.Strategy.VariableSelect,1);
+            //cplex.setParam(IloCplex.Param.MIP.Cuts.MIRCut,2);
+            //cplex.setParam(IloCplex.Param.MIP.Limits.CutPasses,3);
+            //cplex.setParam(IloCplex.Param.Preprocessing.Dual,1);
+            //cplex.setParam(IloCplex.Param.MIP.Display, 4); // Nivel de detalle del log (0 a 5)
+            //cplex.exportModel("modelowave.lp");
             //java.io.PrintStream out = System.out;
             //cplex.setOut(out);
             // Busqueda binaria
@@ -212,6 +223,17 @@ public class ChallengeSolver {
                 remainingTime = getRemainingTime(stopWatch);
                 //System.out.print("Tiempo: ");
                 //System.out.println(remainingTime);
+                if (canPrune(a, mid, bestRatio)) {
+                    // Podar rama izquierda
+                    b = mid - 1;
+                    continue;
+                }
+
+                if (canPrune(mid + 1, b, bestRatio)) {
+                    // Podar rama derecha
+                    a = mid + 1;
+                    continue;
+                }
                 List<Object> sIzq = solveForH(cplex, restlb, restub, a, mid, remainingTime - 20, 0.02, x, y);
                 System.out.println("izq " + a + " " + mid + " " + sIzq.get(0) + " " + sIzq.get(3) + " " + ((double) sIzq.get(0) / (int) sIzq.get(3)) + " " + remainingTime);
 
